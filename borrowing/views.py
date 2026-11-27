@@ -1,4 +1,10 @@
 from django_q.tasks import async_task
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -12,6 +18,48 @@ from borrowing.serializers import (
 )
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List borrowings",
+        description=(
+            "Retrieve a list of book borrowings. "
+            "Regular users only see their own "
+            "borrowings, while staff users see all records "
+            "and can filter by user_id."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="is_active",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Filter by active status "
+                            "(true = not returned yet, "
+                            "false = already returned).",
+            ),
+            OpenApiParameter(
+                name="user_id",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Filter borrowings by specific user ID "
+                            "(available for admin users only).",
+            ),
+        ],
+    ),
+    create=extend_schema(
+        summary="Create a new borrowing",
+        description=(
+            "Borrow a book by providing book ID and expected_return_date. "
+            "Atomically decreases book inventory by 1, "
+            "creates a pending Stripe payment session, "
+            "and sends a Telegram notification to administrators."
+        ),
+    ),
+    retrieve=extend_schema(
+        summary="Retrieve borrowing details",
+        description="Get detailed information about a specific borrowing, "
+                    "including linked Stripe payments.",
+    ),
+)
 class BorrowingViewSet(
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
@@ -62,6 +110,19 @@ class BorrowingViewSet(
         )
         async_task("notification.tasks.send_telegram_notification", message)
 
+    @extend_schema(
+        summary="Return a borrowed book",
+        description=(
+            "Sets actual_return_date to today and "
+            "atomically increases the book's inventory by 1. "
+            "If the book is returned after expected_return_date, "
+            "automatically generates a Stripe "
+            "Checkout Session for the overdue fine. "
+            "No request body is required."
+        ),
+        request=None,
+        responses={200: BorrowingSerializer},
+    )
     @action(
         methods=["POST"],
         detail=True,
