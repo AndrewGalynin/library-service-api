@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "book",
     "borrowing",
     "notification",
+    "payment",
 ]
 
 AUTH_USER_MODEL = "user.User"
@@ -159,3 +160,6 @@ Q_CLUSTER = {
     "label": "Django Q",
     "orm": "default",
 }
+
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+FINE_MULTIPLIER = 2

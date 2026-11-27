@@ -5,10 +5,19 @@ from rest_framework import serializers
 from book.models import Book
 from book.serializers import BookSerializer
 from borrowing.models import Borrowing
+from payment.models import Payment
+from payment.stripe_helper import create_stripe_session
+
+
+class BorrowingPaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = ("id", "status", "type", "money_to_pay", "session_url")
 
 
 class BorrowingSerializer(serializers.ModelSerializer):
     book = BookSerializer(read_only=True)
+    payments = BorrowingPaymentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Borrowing
@@ -19,6 +28,7 @@ class BorrowingSerializer(serializers.ModelSerializer):
             "actual_return_date",
             "book",
             "user",
+            "payments",
         )
 
 
@@ -52,7 +62,13 @@ class BorrowingCreateSerializer(serializers.ModelSerializer):
                 )
             book.inventory -= 1
             book.save(update_fields=["inventory"])
-            return Borrowing.objects.create(**validated_data)
+            borrowing = Borrowing.objects.create(**validated_data)
+            create_stripe_session(
+                borrowing=borrowing,
+                request=self.context["request"],
+                payment_type=Payment.Type.PAYMENT,
+            )
+            return borrowing
 
     def to_representation(self, instance):
         return BorrowingSerializer(instance, context=self.context).data
@@ -81,6 +97,13 @@ class BorrowingReturnSerializer(serializers.ModelSerializer):
 
             instance.actual_return_date = timezone.now().date()
             instance.save(update_fields=["actual_return_date"])
+
+            if instance.actual_return_date > instance.expected_return_date:
+                create_stripe_session(
+                    borrowing=instance,
+                    request=self.context["request"],
+                    payment_type=Payment.Type.FINE,
+                )
         return instance
 
     def to_representation(self, instance):
