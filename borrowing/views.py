@@ -1,3 +1,4 @@
+from django_q.tasks import async_task
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -47,7 +48,16 @@ class BorrowingViewSet(
         return BorrowingSerializer
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        borrowing = serializer.save(user=self.request.user)
+        message = (
+            f"<b>New Borrowing Created!</b>\n"
+            f"ID: #{borrowing.id}\n"
+            f"Book: {borrowing.book.title} ({borrowing.book.author})\n"
+            f"User: {borrowing.user.email}\n"
+            f"Borrow date: {borrowing.borrow_date}\n"
+            f"Expected return date: {borrowing.expected_return_date}"
+        )
+        async_task("notification.tasks.send_telegram_notification", message)
 
     @action(
         methods=["POST"],
