@@ -2,6 +2,8 @@ import stripe
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django_q.tasks import async_task
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -30,6 +32,25 @@ class PaymentViewSet(
             queryset = queryset.filter(borrowing__user=self.request.user)
         return queryset
 
+    @extend_schema(
+        summary="Confirm successful Stripe payment",
+        description=(
+            "Callback endpoint for Stripe Checkout success redirect. "
+            "Verifies payment status "
+            "via Stripe API using session_id, marks the Payment as PAID, "
+            "and sends a Telegram notification."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="session_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Stripe Checkout Session ID returned in the redirect URL.",
+            ),
+        ],
+        responses={200: PaymentSerializer},
+    )
     @action(
         methods=["GET"],
         detail=False,
@@ -81,6 +102,11 @@ class PaymentViewSet(
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    @extend_schema(
+        summary="Handle cancelled Stripe payment",
+        description="Callback endpoint for Stripe Checkout cancel redirect. "
+                    "Informs the user that payment is paused.",
+    )
     @action(
         methods=["GET"],
         detail=False,
